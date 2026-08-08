@@ -267,6 +267,47 @@ there; Platt is least-bad. Calibrate on a temporally-held-out 20% split, separat
 from the hyperparameter-tuning fold. Evaluate with Brier score + reliability
 diagrams (5–6 bins, not 10 — fewer bins at low n).
 
+> **Implemented result — HONEST NEGATIVE: no tradeable inefficiency found.**
+>
+> Stage 1b (cover-prob model, `src/abcm/model/cover.py`) was added to supply a
+> spread `model_prob` — Stage 1 only predicts home *win* prob, but spreads are
+> about *covering*. Trained on 6,423 REG games 1999-2023 (cover label
+> `(home_score-away_score) >= spread_line`; nflverse sign convention is the
+> *opposite* of Vegas — **positive** `spread_line` = home favored). The cover
+> gate barely passes (LogReg brier 0.249 vs naive base 0.250; ~51% accuracy —
+> beating the closing spread is near-coin-flip, as expected).
+>
+> Stage 2 (`src/abcm/model/inefficiency.py`) built the edge frame on 1,090 clean
+> labeled rows (254 moneyline, 836 spread), resolved the YES side
+> (`model_prob_yes = home_prob if YES==home else 1-home_prob`), and evaluated
+> pooled vs per-type vs spread-first stacking on the binary target
+> (`was betting the model's side profitable?`), with bootstrap 95% CIs:
+>
+> | Config (LOSO 2024→2025) | n_test | Brier [95% CI] | Base Brier | Verdict |
+> |---|---|---|---|---|
+> | pooled | 849 | 0.276 [0.266, 0.286] | 0.249 | ❌ worse than base |
+> | per-type moneyline | 93 | 0.279 [0.242, 0.318] | 0.245 | ❌ worse (CI includes base) |
+> | per-type spread | 756 | 0.251 [0.245, 0.257] | 0.249 | ⚠️ indistinguishable from base |
+> | stacking | 93 | 0.280 [0.243, 0.319] | — | ❌ no lift over per-type |
+> | rolling-origin pooled | 872 | 0.270 [0.261, 0.280] | 0.249 | ❌ worse than base |
+>
+> **Every configuration's Brier is at or above the base rate.** A naive "predict
+> the base-rate probability" outperforms the model. Accuracy is ~0.49–0.54, no
+> better than chance. The `edge` signal is biased negative (mean −0.026: the
+> market systematically prices YES above the model), and the model cannot turn
+> that into a profitable decision rule.
+>
+> **This is the honest answer to the project's core question, and it is
+> consistent with the thin Stage 1 edge** (~0.002 Brier over Elo). A win-prob
+> model that only barely beats Elo does not produce a `market_delta` large or
+> consistent enough to identify tradeable Polymarket inefficiency at these sample
+> sizes. Stage 3 (backtest/CLV) is unlikely to rescue this — CLV beats ROI as a
+> validity signal, but there's no positive edge here to validate. The honest
+> recommendation: do not deploy; revisit only if (a) Stage 1's edge widens
+> (better features / more history), (b) the labeled set grows (the deferred
+> 6,400 game-total markets, or 2026 data), or (c) a fundamentally different
+> signal (e.g. line movement / QB news) is added.
+
 ---
 
 ## Stage 3 — Backtest & bet-sizing
@@ -323,7 +364,8 @@ forward-testing the 2026 season live is the real test.
 - [x] Stage 1 outcome predictions for the labeled games come from a model trained
       **without** those games' labels — the final fit uses 1999–2023 only; the
       2024–2025 labeled games are scored, never trained on
-- [ ] OOF stacking predictions respect temporal folds
+- [x] OOF stacking predictions respect temporal folds (spread OOF feature for
+      moneyline generated from in-window spread rows only; unit-tested)
 - [ ] Calibration split is temporal (last 20% by date), not random
 - [ ] No feature uses post-game data (injury backfills, retroactive stat corrections)
 - [ ] The 2026 holdout is touched once, at the very end
@@ -337,22 +379,28 @@ forward-testing the 2026 season live is the real test.
 ```
 src/abcm/model/
     __init__.py
-    outcome.py          # Stage 1: outcome model train/predict
-    inefficiency.py     # Stage 2: edge model train/predict
-    backtest.py         # Stage 3: backtest, CLV, Kelly
-    calibrate.py        # Platt scaling + reliability diagrams
+    outcome.py          # Stage 1: home-win-prob model train/predict
+    cover.py            # Stage 1b: home-cover-prob model (spread model_prob)
+    inefficiency.py     # Stage 2: edge model train/predict + LOSO/rolling-origin
+    backtest.py         # Stage 3: backtest, CLV, Kelly (not yet built)
+    calibrate.py        # Platt scaling + Brier/reliability helpers
 scripts/
     build_features.py   # Stage 0
+    build_elo.py        # Elo ratings (Stage 0 dependency)
     train_outcome.py    # Stage 1
+    train_cover.py      # Stage 1b
     train_inefficiency.py  # Stage 2
-    run_backtest.py     # Stage 3
+    run_backtest.py     # Stage 3 (not yet built)
 notebooks/
-    02_backtest.ipynb   # Stage 3 analysis
+    02_backtest.ipynb   # Stage 3 analysis (not yet built)
 data/processed/features/
     game_features.parquet
     game_outcome_probs.parquet
+    game_cover_probs.parquet
+    inefficiency_predictions.parquet
 data/processed/models/
     outcome_model.joblib
+    cover_model.joblib
     inefficiency_model.joblib
 ```
 
