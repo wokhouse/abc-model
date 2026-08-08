@@ -32,6 +32,7 @@ NFLVERSE_HISTORY_DIR = RAW_DIR / "nflverse_history"
 KAGGLE_RAW_DIR = RAW_DIR / "kaggle"
 ELO_PROCESSED_DIR = PROCESSED_DIR / "elo"
 FEATURE_PROCESSED_DIR = PROCESSED_DIR / "features"
+MODELS_PROCESSED_DIR = PROCESSED_DIR / "models"
 
 
 def ensure_dirs() -> None:
@@ -47,6 +48,7 @@ def ensure_dirs() -> None:
         KAGGLE_RAW_DIR,
         ELO_PROCESSED_DIR,
         FEATURE_PROCESSED_DIR,
+        MODELS_PROCESSED_DIR,
     ):
         d.mkdir(parents=True, exist_ok=True)
 
@@ -157,4 +159,11 @@ ELO_MEAN = float(os.environ.get("ABC_ELO_MEAN", "1505"))  # season-start prior
 ELO_REGRESSION = float(os.environ.get("ABC_ELO_REGRESSION", "0.333"))  # toward mean
 ELO_HFA = float(os.environ.get("ABC_ELO_HFA", "55"))  # home-field advantage (Elo pts)
 ELO_K_BASE = float(os.environ.get("ABC_ELO_K_BASE", "20"))  # K-factor multiplier
+
+
+# --- Modeling --------------------------------------------------------------
+
+# Pinned random_state for every estimator and CV split, so a model run is a pure
+# function of its inputs (per the cross-cutting reproducibility requirement).
+STAGE1_RANDOM_STATE: int = int(os.environ.get("ABC_STAGE1_RANDOM_STATE", "42"))
 

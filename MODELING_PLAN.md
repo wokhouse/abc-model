@@ -146,14 +146,48 @@ On the XGBoost model, enforce:
 
 ### Output
 A trained outcome model + its predicted `home_win_prob` for every game in
-`game_features.parquet` (including the 2024–2026 labeled games). Write predictions
-to `data/processed/features/game_outcome_probs.parquet` (`game_id, home_win_prob`).
+`game_features.parquet` (including the 2024–2025 labeled games). Write predictions
+to `data/processed/features/game_outcome_probs.parquet`
+(`game_id, home_win_prob, pred_method`).
 
 ### Honest OOS check
 LOSO within the history: train 1999–2020 → test 2021–2023. Report Brier score
 and calibration. A reasonable NFL outcome model gets ~63–68% accuracy and Brier
 ~0.23. If the outcome model is no better than Elo's `elo_home_prob` alone, the
 Stage 2 transfer has no edge — stop and reconsider features before proceeding.
+
+> **Implemented result (gate PASSED, thin edge).** The LOSO gate (train 1999–2020
+> → test 2021–2023) and a 3-fold rolling-expanding LOSO for variance were built
+> in `src/abcm/model/outcome.py` + `calibrate.py`. Numbers:
+>
+> | Model | Acc | Brier | (multi-fold Brier mean±std) |
+> |---|---|---|---|
+> | Elo baseline | 0.601 | 0.228 | 0.221 ± 0.005 |
+> | **LogReg** | **0.643** | **0.226** | **0.219 ± 0.005** |
+> | XGBoost | 0.610 | 0.232 | 0.224 ± 0.006 |
+>
+> Key findings, stated plainly:
+> - **Only LogReg beats Elo on Brier** — in all 3 multi-folds, with *lower*
+>   accuracy variance. XGBoost does **not** beat Elo on Brier in any fold, exactly
+>   as the research predicted ("at small n, penalized logistic may beat XGBoost").
+> - The final scorer is therefore the **gate winner (LogReg)**, not XGBoost by
+>   default. `train_final_and_predict(final_model="gate_winner", gate=...)` picks
+>   the lower-Brier model automatically.
+> - **The edge is small** (~0.002–0.003 Brier). Stage 2 should not assume a large
+>   `market_delta` edge exists; it's a real-but-thin signal.
+> - **Null handling:** ~46% of games (mostly pre-tracking-era deep history) lack
+>   EPA/CPOE features and are scored by an Elo-only logistic fallback rather than
+>   being dropped — no fabricated values. In 2024–2025 (the Stage 2 window) 65% of
+>   games use the final model, 35% the Elo fallback.
+> - `monotone_constraints` on `elo_diff`/`pass_epa_diff`/`rest_diff` are wired up
+>   (the plan's `epa_diff` → `pass_epa_diff`, the only EPA-diff column).
+>
+> Outputs: `data/processed/features/game_outcome_probs.parquet`
+> (`game_id, home_win_prob, pred_method`, 7,276 rows, 0 nulls) and
+> `data/processed/models/outcome_model.joblib`. The summary dict carries
+> `gate_passed: True` so Stage 2 can hard-fail if this is ever re-run and
+> regresses. `market_delta = home_win_prob - open_price` is computable on the
+> labeled rows (mean −0.016, std 0.315 — sensibly centered).
 
 ---
 
@@ -284,18 +318,18 @@ forward-testing the 2026 season live is the real test.
 ## Cross-cutting concerns
 
 ### Data leakage checklist (apply at every stage)
-- [ ] Rolling features exclude the current game (shift-by-1 invariant, unit-tested)
-- [ ] Stage 1 outcome predictions for the labeled games come from a model trained
-      **without** those games' labels (the labeled games can be in Stage 1's
-      feature rows, but their outcomes must not train the Stage 1 model if you
-      want a clean transfer — or use nested CV)
+- [x] Rolling features exclude the current game (shift-by-1 invariant, unit-tested
+      — 0 mismatches across all 14,278 games in Stage 0)
+- [x] Stage 1 outcome predictions for the labeled games come from a model trained
+      **without** those games' labels — the final fit uses 1999–2023 only; the
+      2024–2025 labeled games are scored, never trained on
 - [ ] OOF stacking predictions respect temporal folds
 - [ ] Calibration split is temporal (last 20% by date), not random
 - [ ] No feature uses post-game data (injury backfills, retroactive stat corrections)
 - [ ] The 2026 holdout is touched once, at the very end
 
 ### Reproducibility
-- Pin `random_state` everywhere (XGBoost, sklearn, CV splits)
+- Pin `random_state` everywhere (XGBoost, sklearn, CV splits) — `config.STAGE1_RANDOM_STATE=42`
 - Write all predictions/probas to parquet with the fold/seed in the filename
 - The `game_features.parquet` build is deterministic given the raw data
 
