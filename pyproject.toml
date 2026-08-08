@@ -12,6 +12,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "nflreadpy>=0.1.4",
     "matplotlib>=3.11.1",
+    "kaggle>=2.2.4",
 ]
 
 [project.optional-dependencies]

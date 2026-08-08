@@ -28,6 +28,9 @@ PROCESSED_DIR = DATA_DIR / "processed"
 POLYMARKET_RAW_DIR = RAW_DIR / "polymarket"
 POLYMARKET_PRICES_DIR = POLYMARKET_RAW_DIR / "prices"
 NFLVERSE_RAW_DIR = RAW_DIR / "nflverse"
+NFLVERSE_HISTORY_DIR = RAW_DIR / "nflverse_history"
+KAGGLE_RAW_DIR = RAW_DIR / "kaggle"
+ELO_PROCESSED_DIR = PROCESSED_DIR / "elo"
 
 
 def ensure_dirs() -> None:
@@ -39,6 +42,9 @@ def ensure_dirs() -> None:
         POLYMARKET_RAW_DIR,
         POLYMARKET_PRICES_DIR,
         NFLVERSE_RAW_DIR,
+        NFLVERSE_HISTORY_DIR,
+        KAGGLE_RAW_DIR,
+        ELO_PROCESSED_DIR,
     ):
         d.mkdir(parents=True, exist_ok=True)
 
@@ -52,6 +58,23 @@ def _parse_years(raw: str | None) -> list[int]:
 
 
 YEARS: list[int] = _parse_years(os.environ.get("ABC_YEARS"))
+
+
+def _parse_years_range(raw: str | None, default_lore: int, default_hi: int) -> list[int]:
+    """Parse a year list, defaulting to a contiguous inclusive range."""
+    if not raw:
+        return list(range(default_lore, default_hi + 1))
+    return [int(y) for y in raw.split(",") if y.strip()]
+
+
+# Deep NFL history for the two-stage transfer-learning recipe: pre-train a
+# game-outcome model on decades of nflverse data (pbp/features back to 1999),
+# then apply it to the thin Polymarket-labeled 2024+ set. This is a much larger
+# pull than YEARS (the fast Polymarket-aligned set) and writes to separate files
+# so the modeling target data isn't disturbed.
+NFLVERSE_HISTORY_YEARS: list[int] = _parse_years_range(
+    os.environ.get("ABC_NFLVERSE_HISTORY_YEARS"), 1999, 2025
+)
 
 
 # --- Polymarket API --------------------------------------------------------
@@ -89,3 +112,40 @@ PRICE_CONCURRENCY = int(os.environ.get("ABC_PRICE_CONCURRENCY", "4"))
 # When snapshotting a market's price, take the last trade at or before this many
 # hours before the scheduled game time. Falls back to the last available price.
 PRICE_SNAPSHOT_HOURS_BEFORE_GAME = 1
+
+
+# --- Kaggle (sportsbook betting lines) -------------------------------------
+
+# Credentials are read from the ABC_-prefixed env vars (matching the rest of the
+# codebase) and bridged to the kaggle package's expected KAGGLE_* names at use.
+KAGGLE_USERNAME = os.environ.get("ABC_KAGGLE_USERNAME", "")
+KAGGLE_KEY = os.environ.get("ABC_KAGGLE_KEY", "")
+# Toby Crabtree's "NFL Scores and Betting Data" — game results + sportsbook
+# lines since 1979. The main file is spreadspoke_scores.csv.
+KAGGLE_DATASET = os.environ.get(
+    "ABC_KAGGLE_DATASET", "tobycrabtree/nfl-scores-and-betting-data"
+)
+
+
+# --- Elo ratings -----------------------------------------------------------
+
+# We compute FiveThirtyEight-style team Elo ourselves (the canonical 538 dataset
+# is frozen at the 2021 season and can't cover our 2024-2026 markets). Elo needs
+# years of history to stabilize, so we pull schedules for a long lookback window
+# (schedules are tiny; pbp stays at the current YEARS).
+def _parse_years_list(raw: str | None, default: str) -> list[int]:
+    if not raw:
+        return [int(y) for y in default.split(",")]
+    return [int(y) for y in raw.split(",") if y.strip()]
+
+
+ELO_HISTORY_YEARS: list[int] = _parse_years_list(
+    os.environ.get("ABC_ELO_HISTORY_YEARS"), "2006,2007,2008,2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024,2025"
+)
+
+# 538 team-Elo constants (https://fivethirtyeight.com/features/how-our-nfl-predictions-work/).
+ELO_MEAN = float(os.environ.get("ABC_ELO_MEAN", "1505"))  # season-start prior
+ELO_REGRESSION = float(os.environ.get("ABC_ELO_REGRESSION", "0.333"))  # toward mean
+ELO_HFA = float(os.environ.get("ABC_ELO_HFA", "55"))  # home-field advantage (Elo pts)
+ELO_K_BASE = float(os.environ.get("ABC_ELO_K_BASE", "20"))  # K-factor multiplier
+
