@@ -107,7 +107,7 @@ def scrape_match(
     *,
     spread_line: float | None = None,
     total_line: float | None = None,
-    target_bookmaker: str | None = None,
+    target_bookmaker: str | None = "bet365.us",
     request_delay: float = 1.0,
 ) -> dict | None:
     """Scrape one match's odds (moneyline + requested spread/total lines).
@@ -117,8 +117,11 @@ def scrape_match(
     game — OddsPortal's spread/total markets are per-line, so we request the
     specific ``asian_handicap_<line>`` / ``over_under_<line>`` markets.
 
-    Set ``target_bookmaker`` (e.g. ``"Pinnacle"``) to filter to one book; default
-    returns all books and the normalizer picks the sharpest available.
+    ``target_bookmaker`` defaults to ``"bet365.us"``: targeting one book with
+    ``--odds-history`` is ~40s/game (vs ~3min for all books) while still
+    capturing genuine opening+closing odds. bet365 is a sharp, high-volume book
+    whose open/close lines are meaningful for CLV. (Pinnacle is not carried by
+    OddsPortal for NFL.) Pass ``None`` to scrape all books (slower).
     """
     markets = ["1x2"]
     if spread_line is not None:
