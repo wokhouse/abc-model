@@ -69,6 +69,25 @@ def test_trade_outcome_correct():
     assert backtest.trade_outcome(row_yes_loss) == 0
 
 
+def test_roi_yes_side_only_correct_cost():
+    """ROI uses the actual YES price as cost (not 1-price for NO, which would
+    fabricate a complementary NO-token price Polymarket doesn't guarantee)."""
+    trades = pd.DataFrame({
+        "bet_side": ["YES", "YES", "YES"],
+        "market_prob": [0.5, 0.5, 0.5],   # cost 0.5 each
+        "_won": [1, 1, 0],                # 2 wins, 1 loss
+    })
+    # win: (1-0.5)/0.5 = +1.0 each; loss: (0-0.5)/0.5 = -1.0; mean = (1+1-1)/3
+    assert backtest._roi(trades) == pytest.approx(1 / 3)
+
+
+def test_roi_nan_when_no_yes_bets():
+    trades = pd.DataFrame({
+        "bet_side": ["NO", "NO"], "market_prob": [0.7, 0.8], "_won": [1, 0],
+    })
+    assert np.isnan(backtest._roi(trades))
+
+
 # --- evaluate end-to-end --------------------------------------------------
 
 def test_evaluate_returns_thresholds_and_overall():

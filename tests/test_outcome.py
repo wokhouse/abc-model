@@ -10,13 +10,15 @@ from abcm.model import calibrate, outcome
 
 # --- synthetic frame factory ----------------------------------------------
 
-def _row(game_id, season, *, home_win=1, elo_diff=0.0, pass_epa_diff=0.0,
-         rush_epa_diff=0.0, pass_cpoe_diff=0.0, success_rate_diff=0.0,
-         yards_per_play_diff=0.0, to_lost_diff=0.0, rest_diff=0, div_game=0,
-         neutral_site=0, is_outdoor=1, temp=70.0, wind=5.0, elo_home_prob=0.5):
+def _row(game_id, season, *, home_win=1, elo_diff=0.0, spread_line=0.0,
+         pass_epa_diff=0.0, rush_epa_diff=0.0, pass_cpoe_diff=0.0,
+         success_rate_diff=0.0, yards_per_play_diff=0.0, to_lost_diff=0.0,
+         rest_diff=0, div_game=0, neutral_site=0, is_outdoor=1, temp=70.0,
+         wind=5.0, elo_home_prob=0.5):
     return {
         "game_id": game_id, "season": season, "home_win": home_win,
-        "elo_diff": elo_diff, "pass_epa_diff": pass_epa_diff,
+        "elo_diff": elo_diff, "spread_line": spread_line,
+        "pass_epa_diff": pass_epa_diff,
         "rush_epa_diff": rush_epa_diff, "pass_cpoe_diff": pass_cpoe_diff,
         "success_rate_diff": success_rate_diff, "yards_per_play_diff": yards_per_play_diff,
         "to_lost_diff": to_lost_diff, "rest_diff": rest_diff, "div_game": div_game,

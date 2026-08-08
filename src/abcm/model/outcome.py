@@ -41,8 +41,15 @@ from . import calibrate
 # ``elo_diff`` (pre-game, score-derived but not a leak) and deliberately exclude
 # ``elo_home_prob`` to avoid feeding the Elo probability twice (it's the baseline
 # we must beat, not a feature).
+#
+# ``spread_line`` is the nflverse closing consensus spread (positive = home
+# favored). The SBR experiment showed the spread is a far better win predictor
+# than Elo alone (Brier ~0.211 vs ~0.221 on 2,682 games), so adding it gives
+# Stage 1 a much stronger baseline — the model then only needs to find the
+# residual edge beyond what the market already prices.
 FEATURES: list[str] = [
     "elo_diff",
+    "spread_line",
     "pass_epa_diff",
     "rush_epa_diff",
     "pass_cpoe_diff",
@@ -59,8 +66,11 @@ FEATURES: list[str] = [
 
 # Features whose XGBoost split direction is constrained (+1 = increasing).
 # ``pass_epa_diff`` realizes the plan's "epa_diff" (no single ``epa_diff`` col).
+# ``spread_line`` is +1: a bigger positive line (home favored more) -> higher
+# home win prob.
 MONOTONIC_FEATURES: dict[str, int] = {
     "elo_diff": 1,
+    "spread_line": 1,
     "pass_epa_diff": 1,
     "rest_diff": 1,
 }

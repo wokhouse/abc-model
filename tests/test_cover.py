@@ -97,8 +97,10 @@ def test_cover_features_includes_spread_line():
 def test_cover_xgboost_monotonic_constraints_length_matches():
     mc = cover.make_cover_xgboost().get_params()["monotone_constraints"]
     assert len(mc) == len(cover.COVER_FEATURES)
-    # spread_line itself is unconstrained.
-    assert mc[cover.COVER_FEATURES.index("spread_line")] == 0
+    # spread_line is inherited as +1 from the outcome model's monotonic priors
+    # (a bigger line -> more likely to cover). spread_line should appear exactly once.
+    assert cover.COVER_FEATURES.count("spread_line") == 1
+    assert mc[cover.COVER_FEATURES.index("spread_line")] == 1
 
 
 def test_prepare_cover_frame_column_order():

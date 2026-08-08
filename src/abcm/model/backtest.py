@@ -66,23 +66,24 @@ def trade_outcome(row) -> int:
 
 
 def _roi(trades: pd.DataFrame) -> float:
-    """Simple ROI: a 1-unit bet at decimal odds 1/price pays 1/price-1 or loses 1.
-    Polymarket prices are probabilities (0-1), so a winning YES bet at price p
-    pays (1-p)/p per unit risked... but Polymarket pays $1 per share for a win,
-    costing p per share. ROI per share = (1*win - p) / p simplified to win/loss.
+    """Mean ROI on YES-side bets only (the price we actually have).
 
-    We use the clean definition: each trade risks the stake at the market price;
-    a win returns 1.0 (resolves to $1), a loss returns 0. ROI = mean(return /
-    cost - 1) where cost = open_price (the YES price) for YES bets, (1-open_price)
-    for NO bets.
+    Polymarket YES/NO are *separate tokens* with their own order books; the NO
+    price is NOT ``1 - yes_price``. We only have the YES opening price
+    (``market_prob``), so an honest ROI is computable only for bets where we'd
+    buy the YES token. NO-side bets are excluded from the ROI mean (counted in
+    ``n_trades`` and ``win_rate`` but not ROI) — reporting a NO-bet ROI from the
+    complementary price would be fabricated.
+
+    YES bet: cost = market_prob (the YES price), pays $1 on win, $0 on loss.
+    Per-bet return = (1 - cost) on win, -cost on loss; ROI = return / cost.
     """
-    if len(trades) == 0:
+    yes = trades[trades["bet_side"] == "YES"]
+    if len(yes) == 0:
         return float("nan")
-    cost = np.where(trades["bet_side"] == "YES", trades["market_prob"], 1 - trades["market_prob"])
-    won = trades["_won"].to_numpy()
-    payout = np.where(trades["bet_side"] == "YES", 1.0, 0.0)  # YES resolves to $1
-    # NO bet: pays $1 when YES resolves 0 -> payout when won
-    payout = np.where(won.astype(bool), 1.0, 0.0)
+    cost = yes["market_prob"].to_numpy()
+    won = yes["_won"].to_numpy().astype(bool)
+    payout = np.where(won, 1.0, 0.0)
     ret = (payout - cost) / np.where(cost > 0, cost, np.nan)
     return float(np.nanmean(ret))
 
@@ -128,11 +129,23 @@ def evaluate(
         won = trades["_won"].to_numpy()
         roi = _roi(trades)
 
+        # Per-bet YES-side returns (matching _roi's definition) for an honest CI.
+        yes_trades = trades[trades["bet_side"] == "YES"]
+        if len(yes_trades):
+            ycost = yes_trades["market_prob"].to_numpy()
+            ywon = yes_trades["_won"].to_numpy().astype(bool)
+            ypayout = np.where(ywon, 1.0, 0.0)
+            yes_returns = (ypayout - ycost) / np.where(ycost > 0, ycost, np.nan)
+            yes_returns = yes_returns[np.isfinite(yes_returns)]
+        else:
+            yes_returns = np.array([])
+
         bucket: dict[str, Any] = {
             "n_trades": int(len(trades)),
+            "n_yes": int(len(yes_trades)),
             "win_rate": float(won.mean()) if len(won) else float("nan"),
             "roi": roi,
-            "roi_ci": _bootstrap(np.where(won == 1, 1.0, -1.0)) if len(won) else {"mean": float("nan")},
+            "roi_ci": _bootstrap(yes_returns) if len(yes_returns) else {"mean": float("nan")},
         }
         # CLV where closing lines joined.
         if "home_close_ml" in trades:

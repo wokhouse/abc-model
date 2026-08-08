@@ -325,9 +325,17 @@ def build_features(
     out = eff.merge(sit, on="game_id", how="left")
     out = add_elo(out, elo)
     # Attach the modeling label context (scores/season/week/date) for downstream
-    # convenience without re-joining schedules later.
-    ctx = schedules[["game_id", "season", "week", "gameday", "home_team", "away_team",
-                     "home_score", "away_score"]].copy()
+    # convenience without re-joining schedules later. Also carry the closing
+    # consensus spread/total lines: the spread is a strong pre-game team-strength
+    # summary (the market's efficient estimate) and a high-value Stage 1 feature
+    # (see outcome.FEATURES). nflverse sign convention: positive spread_line =
+    # home favored by that many.
+    ctx_cols = ["game_id", "season", "week", "gameday", "home_team", "away_team",
+                "home_score", "away_score"]
+    for extra in ("spread_line", "total_line"):
+        if extra in schedules.columns:
+            ctx_cols.append(extra)
+    ctx = schedules[ctx_cols].copy()
     ctx["home_win"] = (ctx["home_score"] > ctx["away_score"]).astype("Int64")
     # gameday may already be present on eff only via merge; keep schedules as source.
     out = out.merge(ctx, on=["game_id", "home_team", "away_team"], how="left", suffixes=("", "_ctx"))

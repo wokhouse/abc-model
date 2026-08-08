@@ -37,9 +37,11 @@ from .outcome import (
     make_logreg, make_xgboost, monotonic_constraints,
 )
 
-# Cover features = the outcome feature set + the spread line itself. The line is
-# the number to beat, so it carries the bulk of the cover signal.
-COVER_FEATURES: list[str] = list(FEATURES) + ["spread_line"]
+# Cover features = the outcome feature set, which now already includes
+# ``spread_line`` (added to outcome.FEATURES after the SBR experiment showed the
+# spread is a strong win predictor). The line is the number to beat, so it
+# carries the bulk of the cover signal. Dedupe in case of ordering changes.
+COVER_FEATURES: list[str] = list(dict.fromkeys(list(FEATURES) + ["spread_line"]))
 
 # ``spread_line`` is the only new feature; the monotonic priors from the outcome
 # model carry over (more elo/epa/rest -> more likely to cover any given line).
@@ -63,12 +65,22 @@ def _attach_spread_line(features_df: pd.DataFrame, schedules: pd.DataFrame) -> p
 
     ``spread_line`` comes from nflverse schedules (home-perspective). Missing
     lines (playoff games, a few gaps) become null rows that drop out of training.
+    Tolerates the frame already carrying ``spread_line`` (now attached in Stage 0):
+    only schedules' value fills nulls, avoiding a duplicate column.
     """
-    cols = ["game_id"]
+    out = features_df.copy()
+    sched_cols = ["game_id"]
     for c in ("spread_line", "result"):
-        if c in schedules.columns:
-            cols.append(c)
-    out = features_df.merge(schedules[cols], on="game_id", how="left")
+        if c in schedules.columns and c not in out.columns:
+            sched_cols.append(c)
+    if len(sched_cols) > 1:
+        out = out.merge(schedules[sched_cols], on="game_id", how="left")
+    # If spread_line is already present but some rows are null, fill from schedules.
+    if "spread_line" in out.columns and "spread_line" in schedules.columns:
+        sched_fill = schedules[["game_id", "spread_line"]].rename(columns={"spread_line": "_sl_fill"})
+        out = out.merge(sched_fill, on="game_id", how="left")
+        out["spread_line"] = out["spread_line"].fillna(out["_sl_fill"])
+        out.drop(columns=["_sl_fill"], inplace=True)
     return out
 
 

@@ -342,23 +342,29 @@ def _week_gap(a: tuple[int, int], b: tuple[int, int]) -> int:
 # Pooling comparison
 # ---------------------------------------------------------------------------
 
-def compare_pools(df: pd.DataFrame, *, model_kind: str = "xgboost") -> dict[str, Any]:
+def compare_pools(df: pd.DataFrame, *, model_kind: str = "xgboost",
+                  features: list[str] | None = None) -> dict[str, Any]:
     """Pooled vs per-type vs spread-first stacking, compared via LOSO Brier.
 
     Stacking: the spread model's out-of-fold predictions (generated within the
     same temporal folds) are added as a moneyline feature. The OOF prediction for
     a moneyline row never uses that row's own label nor any future fold's labels.
+
+    ``features`` defaults to FEATURES_STAGE2 intersected with the frame; pass a
+    pre-filtered list (e.g. dropping all-null columns) to control what the models
+    actually see.
     """
     results: dict[str, Any] = {}
+    base_feats = features if features is not None else [f for f in FEATURES_STAGE2 if f in df.columns]
 
     # (a) Pooled.
-    pooled_feats = [f for f in FEATURES_STAGE2 if f in df.columns]
+    pooled_feats = [f for f in base_feats if f in df.columns]
     results["pooled"] = lsoo_evaluate(df, features=pooled_feats, model_kind=model_kind)
 
     # (b) Per-type.
     for mt in ("moneyline", "spread"):
         sub = df[df["market_type"] == mt]
-        feats = [f for f in FEATURES_STAGE2 if f != "market_type_spread" and f in sub.columns]
+        feats = [f for f in base_feats if f != "market_type_spread" and f in sub.columns]
         results[f"per_type_{mt}"] = lsoo_evaluate(sub, features=feats, model_kind=model_kind)
 
     # (c) Spread-first stacking.
@@ -467,13 +473,18 @@ def build_and_save() -> dict[str, Any]:
     print(f"[inefficiency]   binary label balance: {frame['binary_label'].mean():.3f}")
 
     available = [f for f in FEATURES_STAGE2 if f in frame.columns]
+    # Drop features that are entirely null (e.g. line-movement cols when the
+    # OddsPortal scrape hasn't populated them). An all-null feature would make
+    # the null-drop in eval discard every row -> empty folds.
+    available = [f for f in available if frame[f].notna().any()]
     # Report line-movement feature coverage (the new signal).
     for lf in LINE_MOVEMENT_FEATURES:
         if lf in frame.columns:
             cov = frame[lf].notna().mean()
-            print(f"[inefficiency]   {lf}: {cov:.0%} non-null (new line-movement signal)")
+            status = "INCLUDED" if cov > 0 else "all-null, excluded"
+            print(f"[inefficiency]   {lf}: {cov:.0%} non-null ({status})")
     print("[inefficiency] running pooled vs per-type vs stacking (LOSO 2024->2025)...")
-    pools = compare_pools(frame)
+    pools = compare_pools(frame, features=available)
 
     print("[inefficiency] running purged rolling-origin (week-blocked, 1-week embargo)...")
     rolling = {

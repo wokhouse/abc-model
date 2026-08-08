@@ -188,6 +188,25 @@ Stage 2 transfer has no edge — stop and reconsider features before proceeding.
 > `gate_passed: True` so Stage 2 can hard-fail if this is ever re-run and
 > regresses. `market_delta = home_win_prob - open_price` is computable on the
 > labeled rows (mean −0.016, std 0.315 — sensibly centered).
+>
+> **Update — added `spread_line` as a Stage 1 feature (edge thickened ~5×).** An
+> SBR historical experiment (2,682 games, 2011–2021) showed the closing consensus
+> spread is a far better win predictor than Elo alone (Brier ~0.211 vs ~0.221).
+> Since nflverse `spread_line` is 100% populated for all our 2024–2025 games and
+> is a pre-game (non-leaking) feature, it was added to `outcome.FEATURES` (+1
+> monotonic) and to the Stage 0 feature frame. Re-trained gate:
+>
+> | Model | Brier (before) | Brier (after spread_line) | multi-fold |
+> |---|---|---|---|
+> | Elo baseline | 0.228 | 0.228 | 0.221 |
+> | LogReg | 0.226 | **0.219** | 0.219 |
+> | XGBoost | 0.232 | **0.222** | **0.213 ± 0.007** |
+>
+> XGBoost now beats Elo by ~0.008 multi-fold (was ~0.003) — a real, thicker edge
+> for Stage 2 to exploit. Caveat: the "model probability" is now partly built
+> from the market's own closing line, so Stage 2's `market_delta` is partly
+> "closing line − opening price" (a form of CLV). That's a legitimate signal but
+> the model is now market-derived, not purely stats-derived.
 
 ---
 
@@ -307,6 +326,28 @@ diagrams (5–6 bins, not 10 — fewer bins at low n).
 > (better features / more history), (b) the labeled set grows (the deferred
 > 6,400 game-total markets, or 2026 data), or (c) a fundamentally different
 > signal (e.g. line movement / QB news) is added.
+>
+> **Update — re-run with the stronger Stage 1 model (spread_line feature).** With
+> the thicker Stage 1 edge (~0.008 Brier over Elo, up from ~0.003), Stage 2's
+> Brier barely moved (pooled 0.272, per-type spread 0.251 — still ≥ base 0.249).
+> But the Stage 3 backtest (corrected to YES-side-only ROI; NO-side ROI was
+> previously fabricated from the complementary price, which Polymarket's separate
+> NO-token order book does not guarantee) shows a *suggestive* signal:
+>
+> | |edge| threshold | n YES | win rate | ROI | 95% CI |
+> |---|---|---|---|---|
+> | ≥0.03 | 246 | 47.4% | +6.3% | [−9.5%, +22.1%] |
+> | ≥0.05 | 161 | 44.2% | +5.6% | [−16.5%, +25.2%] |
+> | ≥0.08 | 86 | 43.0% | +2.6% | [−24.6%, +37.7%] |
+>
+> Point estimates lean positive at most thresholds (a real change from the prior
+> flat result), but **every CI spans zero** — at n=86–246 YES-side bets this is
+> not statistically distinguishable from no edge. Honest read: "suggestive,
+> under-powered," not "deployable." Whether it's real can only be settled by more
+> data (2026 season, or the deferred game-total markets). Two bugs fixed along
+> the way: the backtest ROI now uses the actual YES price only, and the Stage 2
+> eval drops all-null features (line-movement cols) instead of discarding every
+> row when OddsPortal data is absent.
 
 ---
 
