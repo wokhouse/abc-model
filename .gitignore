@@ -1,0 +1,59 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+develop-eggs/
+sdist/
+wheels/
+share/python-wheels/
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# --- Tooling caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.tox/
+.nox/
+
+# --- Dependency management ---
+# NOTE: uv.lock IS committed on purpose for reproducible installs.
+poetry.lock
+
+# --- Data (large, regenerable from the pipeline) ---
+data/
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- Environment / secrets ---
+.env
+.env.local
+
+# --- Agent / session artifacts ---
+.zcode/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
