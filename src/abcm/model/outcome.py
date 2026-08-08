@@ -47,8 +47,14 @@ from . import calibrate
 # than Elo alone (Brier ~0.211 vs ~0.221 on 2,682 games), so adding it gives
 # Stage 1 a much stronger baseline — the model then only needs to find the
 # residual edge beyond what the market already prices.
+#
+# ``elo_diff`` was deliberately REMOVED: once ``spread_line`` is in the model,
+# Elo adds *negative* value (spread-alone Brier 0.2151 vs spread+Elo 0.2158 on
+# the 2021-2023 LOSO fold). The spread is the market's efficient team-strength
+# summary; Elo is redundant noise on top of it. We still compute Elo (it's the
+# Stage 1 gate baseline to beat, and the Elo-fallback scores pre-2006 games
+# without a spread), but it's no longer a model feature.
 FEATURES: list[str] = [
-    "elo_diff",
     "spread_line",
     "pass_epa_diff",
     "rush_epa_diff",
@@ -69,7 +75,6 @@ FEATURES: list[str] = [
 # ``spread_line`` is +1: a bigger positive line (home favored more) -> higher
 # home win prob.
 MONOTONIC_FEATURES: dict[str, int] = {
-    "elo_diff": 1,
     "spread_line": 1,
     "pass_epa_diff": 1,
     "rest_diff": 1,
