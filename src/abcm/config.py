@@ -31,6 +31,7 @@ NFLVERSE_RAW_DIR = RAW_DIR / "nflverse"
 NFLVERSE_HISTORY_DIR = RAW_DIR / "nflverse_history"
 KAGGLE_RAW_DIR = RAW_DIR / "kaggle"
 ELO_PROCESSED_DIR = PROCESSED_DIR / "elo"
+FEATURE_PROCESSED_DIR = PROCESSED_DIR / "features"
 
 
 def ensure_dirs() -> None:
@@ -45,6 +46,7 @@ def ensure_dirs() -> None:
         NFLVERSE_HISTORY_DIR,
         KAGGLE_RAW_DIR,
         ELO_PROCESSED_DIR,
+        FEATURE_PROCESSED_DIR,
     ):
         d.mkdir(parents=True, exist_ok=True)
 
@@ -133,6 +135,13 @@ KAGGLE_DATASET = os.environ.get(
 # is frozen at the 2021 season and can't cover our 2024-2026 markets). Elo needs
 # years of history to stabilize, so we pull schedules for a long lookback window
 # (schedules are tiny; pbp stays at the current YEARS).
+#
+# The lookback starts at 1999 (the nflverse schedule floor) so that the
+# Stage 1 outcome pre-training window (1999-2023) is fully covered by ``elo_diff``.
+# Caveat: Elo is cold-started at the season-start prior (1505) and is noisy for
+# the first ~3 seasons (1999-2001) until it stabilizes. That is acceptable: those
+# early rows are a minority of the training set, and their rolling efficiency
+# features are also null for the same reason, so the model already discounts them.
 def _parse_years_list(raw: str | None, default: str) -> list[int]:
     if not raw:
         return [int(y) for y in default.split(",")]
@@ -140,7 +149,7 @@ def _parse_years_list(raw: str | None, default: str) -> list[int]:
 
 
 ELO_HISTORY_YEARS: list[int] = _parse_years_list(
-    os.environ.get("ABC_ELO_HISTORY_YEARS"), "2006,2007,2008,2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024,2025"
+    os.environ.get("ABC_ELO_HISTORY_YEARS"), "1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024,2025"
 )
 
 # 538 team-Elo constants (https://fivethirtyeight.com/features/how-our-nfl-predictions-work/).

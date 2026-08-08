@@ -169,10 +169,22 @@ def build_and_save(years: list[int] | None = None) -> dict[str, Any]:
     history = years or config.ELO_HISTORY_YEARS
     config.ensure_dirs()
 
-    # Cache the long-history schedules so re-runs don't re-download.
+    # Cache the long-history schedules so re-runs don't re-download. Invalidate
+    # the cache when the requested season range no longer matches what was cached
+    # (otherwise a config change to ELO_HISTORY_YEARS would silently reuse stale
+    # data covering a different window).
     hist_path = config.ELO_PROCESSED_DIR / "schedules_history.parquet"
+    cached_ok = False
     if hist_path.exists():
-        all_sched = io.read_parquet(hist_path)
+        cached = io.read_parquet(hist_path)
+        if "season" in cached.columns and len(cached):
+            cached_lo, cached_hi = int(cached["season"].min()), int(cached["season"].max())
+            cached_ok = cached_lo <= min(history) and cached_hi >= max(history)
+        if not cached_ok:
+            print(f"[elo] cached schedules ({cached['season'].min()}-{cached['season'].max()}) "
+                  f"don't cover {min(history)}-{max(history)}; re-pulling.")
+    if cached_ok:
+        all_sched = cached
     else:
         print(f"[elo] loading schedules {min(history)}-{max(history)}...")
         sched = nfl.load_schedules(list(history))
