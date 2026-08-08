@@ -140,6 +140,23 @@ def reconcile_all() -> dict[str, Any]:
     else:
         print(f"[reconcile] betting lines not found ({bl_path}); run scripts.ingest_kaggle")
 
+    # OddsPortal opening + closing lines (richer than the single Kaggle line):
+    # per-game open/close moneyline + spread/total odds, keyed on game_id. Enables
+    # the Stage 2 line-movement features and Stage 3 CLV analysis. Optional: if the
+    # scrape hasn't been run the join is skipped (the thin Kaggle line still above).
+    op_path = config.ODDSPORTAL_RAW_DIR / "nfl_lines.parquet"
+    if op_path.exists():
+        op = io.read_parquet(op_path)
+        # Keep the open/close columns; drop game_id collision (already on enriched).
+        op_cols = [c for c in op.columns if c != "season" and c != "week"]
+        op_keys = op[op_cols].drop_duplicates(subset=["game_id"])
+        enriched = enriched.merge(op_keys, on="game_id", how="left", suffixes=("", "_op"))
+        n_op = enriched["home_close_ml"].notna().sum() if "home_close_ml" in enriched else 0
+        summary["oddsportal_coverage"] = int(n_op)
+        print(f"[reconcile] joined OddsPortal open/close lines ({n_op} rows, {len(op)} games available)")
+    else:
+        print(f"[reconcile] OddsPortal lines not found ({op_path}); run scripts.ingest_oddsportal")
+
     out_path = config.PROCESSED_DIR / "aligned.parquet"
     io.write_parquet(enriched, out_path)
     summary["n_rows"] = len(enriched)

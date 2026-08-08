@@ -62,12 +62,21 @@ MARKET_FEATURES: list[str] = [
     "market_delta", "market_prob", "price_delta", "n_candles",
     "sportsbook_spread",
 ]
+# Line-movement features from OddsPortal open/close (the genuinely NEW signal
+# added after the negative Stage-2 result: sharp money moves lines, so open->close
+# movement carries information the true-probability edge alone did not). These are
+# null where OddsPortal data is missing and handled by the null-drop in eval.
+LINE_MOVEMENT_FEATURES: list[str] = [
+    "ml_movement", "spread_odds_movement", "total_odds_movement",
+]
 # Stage 0 game-level differentials carried through (the matchup context).
 GAME_FEATURES: list[str] = [
     "elo_diff", "pass_epa_diff", "rush_epa_diff", "rest_diff", "div_game",
 ]
 # Full pooled feature set (per-type models drop the market_type one-hot).
-FEATURES_STAGE2: list[str] = GAME_FEATURES + MARKET_FEATURES + ["market_type_spread"]
+FEATURES_STAGE2: list[str] = (
+    GAME_FEATURES + MARKET_FEATURES + LINE_MOVEMENT_FEATURES + ["market_type_spread"]
+)
 
 # Mislabeled/novelty moneyline rows to drop (verified by inspection: a game-total
 # question, a 1st-quarter prop, a coin-toss/"Drake bet" market, and a 0.5 resolve).
@@ -142,6 +151,13 @@ def _build_stage2_frame(
     out["market_delta"] = out["model_prob_yes"] - out["market_prob"]  # == edge
     out["edge"] = out["market_delta"]
     out["market_type_spread"] = (out["market_type"] == "spread").astype("int8")
+
+    # Line-movement features from OddsPortal open/close odds (the new signal).
+    # The open/close columns are carried via aligned.parquet (joined in reconcile);
+    # compute_line_features adds ml_movement / spread_odds_movement /
+    # total_odds_movement, null where OddsPortal data is missing.
+    from . import lines as lines_mod
+    out = lines_mod.compute_line_features(out)
 
     # Binary target: did betting the model's side pay off?
     resolved = out["resolved_yes_price"].astype(float)
@@ -451,6 +467,11 @@ def build_and_save() -> dict[str, Any]:
     print(f"[inefficiency]   binary label balance: {frame['binary_label'].mean():.3f}")
 
     available = [f for f in FEATURES_STAGE2 if f in frame.columns]
+    # Report line-movement feature coverage (the new signal).
+    for lf in LINE_MOVEMENT_FEATURES:
+        if lf in frame.columns:
+            cov = frame[lf].notna().mean()
+            print(f"[inefficiency]   {lf}: {cov:.0%} non-null (new line-movement signal)")
     print("[inefficiency] running pooled vs per-type vs stacking (LOSO 2024->2025)...")
     pools = compare_pools(frame)
 
@@ -458,6 +479,16 @@ def build_and_save() -> dict[str, Any]:
     rolling = {
         "pooled": rolling_origin_evaluate(frame, features=available),
     }
+
+    # Stage 3 backtest: ROI / CLV / Kelly on the LOSO test fold.
+    print("[inefficiency] running Stage 3 backtest (ROI, CLV, Kelly)...")
+    from . import backtest as backtest_mod
+    op_path = config.ODDSPORTAL_RAW_DIR / "nfl_lines.parquet"
+    op_lines = io.read_parquet(op_path) if op_path.exists() else None
+    if op_lines is None:
+        print("[inefficiency]   OddsPortal lines missing; CLV skipped (run scripts.ingest_oddsportal)")
+    test_fold = frame[frame["season"].astype(int) == 2025]
+    backtest_results = backtest_mod.evaluate(test_fold, oddsportal_lines=op_lines)
 
     # Pick the best config by LOSO test Brier (lowest mean), then refit on all
     # 2024+2025 for the final prediction artifact.
@@ -481,8 +512,14 @@ def build_and_save() -> dict[str, Any]:
     model_path = config.MODELS_PROCESSED_DIR / "inefficiency_model.joblib"
     _save_bundle({
         "features": available, "best_cfg": best_cfg,
-        "pools": pools, "rolling": rolling,
+        "pools": pools, "rolling": rolling, "backtest": backtest_results,
     }, model_path)
+
+    # Print the Stage 3 verdict honestly.
+    for t, b in backtest_results.get("thresholds", {}).items():
+        clv_str = f"  clv={b.get('clv_mean', float('nan')):+.3f}" if "clv_mean" in b else ""
+        print(f"[inefficiency]   |edge|>={t:.2f}: n={b['n_trades']} roi={b['roi']:+.3f} "
+              f"win={b['win_rate']:.3f}{clv_str}")
 
     summary: dict[str, Any] = {
         "n_rows": len(frame),
@@ -490,7 +527,11 @@ def build_and_save() -> dict[str, Any]:
         "n_spread": int((frame["market_type"] == "spread").sum()),
         "edge_mean": float(frame["edge"].mean()),
         "binary_label_rate": float(frame["binary_label"].mean()),
-        "pools": pools, "rolling": rolling, "best_cfg": best_cfg,
+        "line_movement_coverage": {
+            lf: float(frame[lf].notna().mean()) for lf in LINE_MOVEMENT_FEATURES if lf in frame.columns
+        },
+        "pools": pools, "rolling": rolling, "backtest": backtest_results,
+        "best_cfg": best_cfg,
         "predictions_path": str(pred_path), "model_path": str(model_path),
     }
     print(f"[inefficiency] wrote predictions -> {pred_path}")
