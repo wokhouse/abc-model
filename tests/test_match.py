@@ -109,3 +109,126 @@ def test_non_moneyline_markets_marked_separately():
     )
     out = match_mod.reconcile(markets, schedules)
     assert out.iloc[0]["match_status"] == "not_moneyline"
+
+
+# --- Spread parsing & matching --------------------------------------------
+
+
+def _make_spread_row(
+    *,
+    market_id="s1",
+    question="Spread: Steelers (-5.5)",
+    event_title="Steelers vs. Panthers",
+    market_end="2024-09-15T18:00:00Z",
+):
+    return {
+        "market_id": market_id,
+        "question": question,
+        "outcomes": '["Yes", "No"]',
+        "event_title": event_title,
+        "market_end": market_end,
+        "event_end": market_end,
+        "market_type": "spread",
+    }
+
+
+def test_parse_spread_favored_negative_margin():
+    """'Spread: Steelers (-5.5)' => Steelers favored by 5.5."""
+    parsed = match_mod.parse_spread("Spread: Steelers (-5.5)", "Steelers vs. Panthers")
+    assert parsed["spread_favored_abbr"] == "PIT"
+    assert parsed["spread_opponent_abbr"] == "CAR"
+    assert parsed["spread_margin"] == 5.5
+
+
+def test_parse_spread_underdog_positive_margin():
+    """'Spread: Jets (1.5)' => Jets are getting points; opponent is favored."""
+    parsed = match_mod.parse_spread("Spread: Jets (1.5) ", "Eagles vs. Jets")
+    # Jets are the underdog; the Eagles (from the title) are favored by 1.5.
+    assert parsed["spread_favored_abbr"] == "PHI"
+    assert parsed["spread_opponent_abbr"] == "NYJ"
+    assert parsed["spread_margin"] == 1.5
+
+
+def test_parse_spread_margin_of_victory_phrasing():
+    """'Will the Chiefs win by 4 or more points?' => Chiefs favored by 4."""
+    parsed = match_mod.parse_spread(
+        "Will the Chiefs win by 4 or more points?",
+        "NFL Kickoff: Chiefs vs. Ravens",
+    )
+    assert parsed["spread_favored_abbr"] == "KC"
+    assert parsed["spread_opponent_abbr"] == "BAL"
+    assert parsed["spread_margin"] == 4.0
+
+
+def test_parse_spread_generic_title_returns_no_opponent():
+    """A 'NFL Week 1: Spreads' title carries no opponent identity.
+
+    The named favorite and margin still parse, but without an opponent the
+    market can't be matched to a game downstream.
+    """
+    parsed = match_mod.parse_spread(
+        "Will the Falcons win by 4 or more points?", "NFL Week 1: Spreads"
+    )
+    assert parsed["spread_favored_abbr"] == "ATL"  # named team resolves
+    assert parsed["spread_margin"] == 4.0
+    assert parsed["spread_opponent_abbr"] is None  # no opponent in title
+
+
+def test_spread_market_matches_to_game():
+    """A spread market joins to the same game a moneyline would."""
+    markets = pd.DataFrame([_make_spread_row(
+        question="Spread: Chiefs (-3.5)", event_title="Chiefs vs. Raiders",
+        market_end="2024-10-01T17:00:00Z",
+    )])
+    schedules = pd.DataFrame([_make_schedule(
+        game_id="2024_04_LV_KC", season=2024, week=4,
+        gameday="2024-09-30", away="KC", home="LV",
+    )])
+    out = match_mod.reconcile(markets, schedules)
+    row = out.iloc[0]
+    assert row["match_status"] == "matched"
+    assert row["game_id"] == "2024_04_LV_KC"
+    assert row["spread_favored_abbr"] == "KC"
+    assert row["spread_margin"] == 3.5
+
+
+def test_spread_market_no_game_flagged():
+    """A spread whose teams don't meet in the window is 'teams_found_no_game'."""
+    markets = pd.DataFrame([_make_spread_row(
+        question="Spread: Chiefs (-3.5)", event_title="Chiefs vs. Raiders",
+    )])
+    schedules = pd.DataFrame([_make_schedule(
+        game_id="2024_04_BUF_MIA", season=2024, week=4,
+        gameday="2024-09-15", away="MIA", home="BUF",
+    )])
+    out = match_mod.reconcile(markets, schedules)
+    assert out.iloc[0]["match_status"] == "teams_found_no_game"
+
+
+def test_spread_covered_favorite_covers():
+    """Favorite wins by more than the margin => covered (True)."""
+    # Home team KC favored by 3.5; won 27-20 (margin 7 > 3.5).
+    assert match_mod.spread_covered("KC", 3.5, "KC", "BUF", 27, 20) is True
+
+
+def test_spread_covered_favorite_fails_to_cover():
+    """Favorite wins but by less than the margin => not covered (False)."""
+    # Home team KC favored by 7; won 27-20 (margin 7, not > 7) => push => False.
+    assert match_mod.spread_covered("KC", 7.0, "KC", "BUF", 27, 20) is False
+
+
+def test_spread_covered_away_favorite():
+    """Favorite is the away team; margin computed from away-home score."""
+    # Away team KC favored by 3.5; away score 27, home 20 => +7 > 3.5 => cover.
+    assert match_mod.spread_covered("KC", 3.5, "BUF", "KC", 20, 27) is True
+
+
+def test_spread_covered_favorite_loses():
+    """Favorite loses outright => not covered."""
+    assert match_mod.spread_covered("KC", 3.5, "KC", "BUF", 10, 20) is False
+
+
+def test_spread_covered_unknown_favorite_returns_none():
+    """If the favorite isn't in the game, return None (data-quality flag)."""
+    assert match_mod.spread_covered("NE", 3.5, "KC", "BUF", 27, 20) is None
+    assert match_mod.spread_covered(None, 3.5, "KC", "BUF", 27, 20) is None

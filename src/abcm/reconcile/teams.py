@@ -74,15 +74,29 @@ def nickname_to_abbr(label: str | None) -> str | None:
     """Map a Polymarket outcome label to an nflverse team_abbr.
 
     Returns ``None`` for non-team outcomes (Over/Under/Yes/No) or unknown names.
+
+    Polymarket occasionally uses the abbreviation itself (``"LAC"``, ``"BUF"``)
+    rather than the nickname, so an exact uppercase abbreviation is passed
+    through after the nickname lookup fails.
     """
     if not label:
         return None
     cleaned = _clean_outcome(label)
     if cleaned in _NON_TEAM_OUTCOMES:
         return None
-    return TEAM_NICKNAME_TO_ABBR.get(cleaned)
+    abbr = TEAM_NICKNAME_TO_ABBR.get(cleaned)
+    if abbr is not None:
+        return abbr
+    # Abbreviation passthrough: Polymarket sometimes uses "LAC"/"BUF"/"KC".
+    upper = label.strip().upper()
+    if upper in _ALL_ABBRS:
+        return upper
+    return None
 
 
 def all_abbrs() -> set[str]:
     """Return the full set of known nflverse abbreviations."""
     return set(TEAM_NICKNAME_TO_ABBR.values())
+
+
+_ALL_ABBRS = all_abbrs()

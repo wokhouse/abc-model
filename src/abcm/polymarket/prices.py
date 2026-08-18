@@ -201,3 +201,18 @@ def candles_for(condition_id: str) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame(columns=["ts", "open", "high", "low", "close", "n_trades", "volume"])
     return io.read_parquet(path)
+
+
+def trades_for(condition_id: str) -> pd.DataFrame:
+    """Load the raw trade history for a market (all outcomes; empty if absent).
+
+    Unlike ``candles_for`` (which is Yes-token only, hourly), this returns every
+    trade for both outcomes at tick resolution. Filter on ``asset`` to isolate
+    the Yes token. Used to recover the true tick-level opening price.
+    """
+    path = trades_path(condition_id)
+    if not path.exists():
+        return pd.DataFrame(
+            columns=["timestamp", "price", "asset", "side", "size", "outcome", "outcomeIndex"]
+        )
+    return io.read_parquet(path)

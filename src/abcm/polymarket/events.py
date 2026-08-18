@@ -5,8 +5,9 @@ A Polymarket *event* (e.g. "Super Bowl LIX") contains one or more *markets*
 a tradable binary outcome with two CLOB token ids — one for "Yes", one for "No".
 
 This module pages all *closed* NFL events, flattens them to one row per market,
-and classifies each market's type (moneyline / spread / totals / props / futures)
-so later phases can filter to the modeling target without re-pulling raw data.
+and classifies each market's type (moneyline / spread / game_total / season_total /
+player_props / halftime / futures) so later phases can filter to the modeling
+target without re-pulling raw data.
 
 Resolution is encoded in ``outcomePrices``: for ``outcomes=["Yes","No"]`` a
 resolved Yes-win market has ``outcomePrices=["1","0"]`` and a Yes-loss market has
@@ -46,17 +47,54 @@ def fetch_all_closed_events(client: PolymarketClient, tag_id: str) -> list[dict[
 
 
 # --- Market type classification --------------------------------------------
+#
+# Classification is driven primarily by the *question* text, with outcomes as a
+# fallback moneyline signal. The question carries the explicit type phrasing
+# Polymarket uses:
+#   - spreads:   "Spread: Steelers (-5.5)", "1H Spread: Packers (-2.5)"
+#   - totals:    "Steelers vs Panthers: O/U 35.5", "Falcons Team Total: O/U 26.5",
+#                "Will there be 47 or more combined points scored?"
+#   - season:    "Will the Cardinals win 9 or more regular season games?"
+#   - props:     "First Touchdown: Davante Adams", "Mahomes: Passing Yards O/U 275.5"
+#   - futures:   "Will X win the Super Bowl?", draft picks, MVP, division winners
+# Outcomes are only decisive for a moneyline when they name two different teams
+# AND the question carries no explicit spread/total/prop phrasing — otherwise the
+# two-team check mislabels spreads (which use two team outcomes, e.g.
+# ["Eagles","Cowboys"] for "Spread: Eagles (-7.5)") and team-total questions.
 
-# Order matters: check more specific patterns before generic ones.
-_SPREAD_RE = re.compile(r"[-+]\s?\d+\.?\d*|handicap|spread", re.IGNORECASE)
-_TOTALS_RE = re.compile(r"\bover\b|\bunder\b|\btotal\b|o/u", re.IGNORECASE)
+# Explicit game-spread phrasing. The old ``[-+]\d`` alternative matched bare
+# years ("2024-25") and MVP/award text; we now require the literal "spread"
+# keyword (optionally prefixed with a half marker like "1H"), or a
+# margin-of-victory phrasing ("win/beat/defeat ... by N or more points").
+_SPREAD_RE = re.compile(
+    r"\b\dh\s*spread\b|\bspread\b|"
+    r"\b(win|beat|defeat).{0,40}\bby \d+ or more points\b",
+    re.IGNORECASE,
+)
+
+# Game / team totals: an explicit "O/U" line, or "combined points scored".
+# Season win totals ("win N or more regular season games") are excluded and
+# handled by _SEASON_TOTAL_RE below.
+_GAME_TOTAL_RE = re.compile(r"\bo/u\b|\bcombined points\b|\bover/under\b", re.IGNORECASE)
+_SEASON_TOTAL_RE = re.compile(
+    r"\bregular[- ]season games\b|\bwin \d+ or more regular\b", re.IGNORECASE
+)
+
+# Player props: individual performance, or the "First Touchdown: <player>" form.
 _PLAYER_PROP_RE = re.compile(
     r"\b(passing|rushing|receiving) yards\b|\byards\b|\btd(s)?\b|"
     r"\breceptions\b|\bcarries\b|\bcompletions\b|\binterceptions\b|"
-    r"\bplayer\b",
+    r"\bfirst touchdown\b|\banytime touchdown\b|\bplayer\b",
     re.IGNORECASE,
 )
-_HALF_RE = re.compile(r"\b1st half\b|\b2nd half\b|\bhalftime\b|\bfirst half\b", re.IGNORECASE)
+_HALF_RE = re.compile(
+    r"\b1st half\b|\b2nd half\b|\bhalftime\b|\bfirst half\b|\b1h\b", re.IGNORECASE
+)
+_FUTURES_RE = re.compile(
+    r"\bchampion\b|\bwin (the )?super bowl\b|\bwin the\b|\bdivision winner\b|"
+    r"\bmvp\b|\bdraft\b|\bplayoffs?\b|\bmake the playoffs\b|\b1st (overall )?pick\b",
+    re.IGNORECASE,
+)
 
 
 def classify_market(
@@ -67,44 +105,60 @@ def classify_market(
 ) -> str:
     """Best-effort market-type label from the question/event/outcomes.
 
-    Returns one of: moneyline, spread, totals, player_props, halftime, futures,
-    other. Classification is heuristic — it drives filtering, not modeling, so
-    false positives just get reviewed in the EDA rather than breaking anything.
+    Returns one of: moneyline, spread, game_total, season_total, player_props,
+    halftime, futures, other. Classification is heuristic — it drives filtering,
+    not modeling, so false positives get reviewed in the EDA rather than
+    breaking anything.
 
-    The strongest moneyline signal is *two team-name outcomes* (e.g.
-    ``["Texans", "Bears"]``); a bare "vs" in the question is insufficient because
-    many prop questions ("highest scoring game") also contain "vs".
+    The question text wins over the outcomes: Polymarket reuses two team-name
+    outcomes for spread markets (e.g. ``["Eagles","Cowboys"]`` on
+    "Spread: Eagles (-7.5)"), so the two-team-outcome check only fires when no
+    explicit spread/total/prop phrasing is present.
     """
-    text = f"{question or ''} {event_title or ''}".strip()
+    question = (question or "").strip()
+    event_title = (event_title or "").strip()
+    text = f"{question} {event_title}".strip()
     if not text:
         return "other"
 
-    # Two non-Yes/No outcomes that name teams => definitive game moneyline.
-    # (Team-name validity is validated later in reconcile.teams; here we only
-    # require that both outcomes are neither Yes/No nor Over/Under.)
-    if outcomes and len(outcomes) == 2:
-        lowered = {str(o).strip().lower() for o in outcomes}
-        if not (lowered & {"yes", "no", "over", "under"}):
-            # Still let spread/total suffixes on the outcome win out.
-            if not any(_SPREAD_RE.search(str(o)) for o in outcomes):
-                return "moneyline"
+    # Explicit-game markers (from the question) take precedence over everything.
+    if _SPREAD_RE.search(question) and "1h" in question.lower():
+        return "halftime"  # "1H Spread:" is a halftime market, not a full-game spread
+    if _SPREAD_RE.search(question):
+        return "spread"
+    if _SEASON_TOTAL_RE.search(question):
+        return "season_total"
+    # An O/U line is a game/team total — UNLESS it's scoped to a half (1H O/U)
+    # or attached to a player (Passing Yards O/U). Check those contexts first.
+    if _GAME_TOTAL_RE.search(question):
+        if "1h" in question.lower():
+            return "halftime"
+        if _PLAYER_PROP_RE.search(text):
+            return "player_props"
+        return "game_total"
 
+    # Situational / scope markers.
     if _HALF_RE.search(text):
+        # "1H Moneyline" is a halftime market even with team outcomes.
         return "halftime"
     if _PLAYER_PROP_RE.search(text):
         return "player_props"
-    if _SPREAD_RE.search(text):
-        return "spread"
-    if _TOTALS_RE.search(text):
-        return "totals"
+    if _FUTURES_RE.search(text):
+        return "futures"
+
+    # Two non-Yes/No outcomes that name teams => game moneyline. This runs only
+    # after the explicit markers above, so spread/team-total questions that also
+    # carry two team outcomes are correctly routed. (Team-name validity is
+    # confirmed later in reconcile.teams; here we just reject generic labels.)
+    if outcomes and len(outcomes) == 2:
+        lowered = {str(o).strip().lower() for o in outcomes}
+        if not (lowered & {"yes", "no", "over", "under"}):
+            return "moneyline"
+
     # Single-team moneyline phrasings: "X to win", "X beat Y", "X defeat Y".
-    # A bare "vs" is intentionally NOT enough — too many prop questions use it
-    # (e.g. "Will Chiefs vs Ravens be the highest scoring game?").
+    # A bare "vs" is intentionally NOT enough — too many prop questions use it.
     if re.search(r"\bto win\b|\bbeat\b|\bdefeat\b", text, re.IGNORECASE):
         return "moneyline"
-    if re.search(r"\bchampion\b|\bwin (the )?super bowl\b|\bwin the\b|\bdivision winner\b",
-                 text, re.IGNORECASE):
-        return "futures"
     return "other"
 
 

@@ -12,6 +12,11 @@ dependencies = [
     "python-dotenv>=1.0",
     "nflreadpy>=0.1.4",
     "matplotlib>=3.11.1",
+    "kaggle>=2.2.4",
+    "scikit-learn>=1.4",
+    "xgboost>=2.0",
+    "joblib>=1.3",
+    "oddsharvester>=0.10",
 ]
 
 [project.optional-dependencies]

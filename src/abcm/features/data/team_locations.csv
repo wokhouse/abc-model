@@ -1,0 +1,33 @@
+team_abbr,home_city,lat,lon,tz_offset_hours
+ARI,Glendale AZ,33.5276,-112.2625,-7
+ATL,Atlanta GA,33.7578,-84.3883,-5
+BAL,Baltimore MD,39.2780,-76.6224,-5
+BUF,Orchard Park NY,42.7737,-78.7869,-5
+CAR,Charlotte NC,35.2258,-80.8463,-5
+CHI,Chicago IL,41.8623,-87.6167,-6
+CIN,Cincinnati OH,39.0956,-84.5162,-5
+CLE,Cleveland OH,41.5061,-81.6995,-5
+DAL,Arlington TX,32.7473,-97.1019,-6
+DEN,Denver CO,39.7439,-105.0201,-7
+DET,Detroit MI,42.3400,-83.0456,-5
+GB,Green Bay WI,44.5013,-88.0622,-6
+HOU,Houston TX,29.6847,-95.4107,-6
+IND,Indianapolis IN,39.7601,-86.1639,-5
+JAX,Jacksonville FL,30.3239,-81.6377,-5
+KC,Kansas City MO,39.0489,-94.4839,-6
+LV,Las Vegas NV,36.0909,-115.1834,-8
+LA,Inglewood CA,33.9511,-118.3386,-8
+LAC,Inglewood CA,33.9511,-118.3386,-8
+MIA,Miami Gardens FL,25.9579,-80.2388,-5
+MIN,Minneapolis MN,44.9737,-93.2575,-6
+NE,Foxborough MA,42.0909,-71.2643,-5
+NO,New Orleans LA,29.9511,-90.0812,-6
+NYG,East Rutherford NJ,40.8128,-74.0742,-5
+NYJ,East Rutherford NJ,40.8128,-74.0742,-5
+PHI,Philadelphia PA,39.9008,-75.1674,-5
+PIT,Pittsburgh PA,40.4468,-80.0158,-5
+SF,Santa Clara CA,37.4030,-121.9696,-8
+SEA,Seattle WA,47.5952,-122.3316,-8
+TB,Tampa FL,27.9759,-82.5034,-5
+TEN,Nashville TN,36.1665,-86.7713,-6
+WAS,Landover MD,38.9076,-76.8645,-5

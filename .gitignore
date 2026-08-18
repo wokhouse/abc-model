@@ -40,6 +40,9 @@ poetry.lock
 
 # --- Data (large, regenerable from the pipeline) ---
 data/
+# Exception: small bundled reference tables shipped in the package source.
+!src/abcm/features/data/
+!src/abcm/features/data/*
 
 # --- Notebooks ---
 .ipynb_checkpoints/
